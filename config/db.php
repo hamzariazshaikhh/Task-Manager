@@ -2,7 +2,7 @@
 $host = 'localhost';
 $db   = 'task_manager_db';
 $user = 'root';
-$pass = ''; // Leave blank if you are using XAMPP/MAMP default local root settings
+$pass = 'root'; // Leave blank if you are using XAMPP/MAMP default local root settings
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
