@@ -72,10 +72,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_task'])) {
 }
 
 // Fetch all tasks for this project
-$taskStmt = $pdo->prepare("SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at DESC");
-$taskStmt->execute([$project_id]);
-$tasks = $taskStmt->fetchAll();
 
+// Fetch tasks using optional filters
+$search = trim($_GET['search'] ?? '');
+$filter_priority = $_GET['priority'] ?? '';
+$filter_status = $_GET['status'] ?? '';
+
+$allowed_priorities = ['low', 'medium', 'high'];
+$allowed_statuses = ['todo', 'in_progress', 'done'];
+
+if (!in_array($filter_priority, $allowed_priorities, true)) {
+    $filter_priority = '';
+}
+
+if (!in_array($filter_status, $allowed_statuses, true)) {
+    $filter_status = '';
+}
+
+$query = "SELECT * FROM tasks WHERE project_id = ?";
+$params = [$project_id];
+
+if ($search !== '') {
+    $query .= " AND (title LIKE ? OR description LIKE ?)";
+    $search_pattern = '%' . $search . '%';
+    $params[] = $search_pattern;
+    $params[] = $search_pattern;
+}
+
+if ($filter_priority !== '') {
+    $query .= " AND priority = ?";
+    $params[] = $filter_priority;
+}
+
+if ($filter_status !== '') {
+    $query .= " AND status = ?";
+    $params[] = $filter_status;
+}
+
+$query .= " ORDER BY due_date ASC, created_at DESC";
+
+$taskStmt = $pdo->prepare($query);
+$taskStmt->execute($params);
+$tasks = $taskStmt->fetchAll();
 // Group tasks by status
 $kanban = [
     'todo' => [],
@@ -149,13 +187,71 @@ foreach ($tasks as $task) {
             </form>
         </div>
 
+        
+         <!-- Task Filters -->
+
+        <div class="auth-container" style="max-width: 100%; margin: 0 0 32px 0; padding: 24px;">
+            <h3>Filter Tasks</h3>
+
+    <form action="project.php" method="GET" style="display: flex; gap: 12px; align-items: flex-end; margin-top: 12px; flex-wrap: wrap;">
+        <input type="hidden" name="id" value="<?php echo $project_id; ?>">
+
+        <div class="form-group" style="flex: 2; min-width: 220px; margin-bottom: 0;">
+            <label for="search">Search</label>
+            <input
+                type="search"
+                id="search"
+                name="search"
+                placeholder="Search title or description..."
+                value="<?php echo htmlspecialchars($search); ?>"
+            >
+        </div>
+
+        <div class="form-group" style="flex: 1; min-width: 140px; margin-bottom: 0;">
+            <label for="filter-priority">Priority</label>
+            <select id="filter-priority" name="priority">
+                <option value="">All priorities</option>
+                <option value="low" <?php echo $filter_priority === 'low' ? 'selected' : ''; ?>>Low</option>
+                <option value="medium" <?php echo $filter_priority === 'medium' ? 'selected' : ''; ?>>Medium</option>
+                <option value="high" <?php echo $filter_priority === 'high' ? 'selected' : ''; ?>>High</option>
+            </select>
+        </div>
+
+        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+            <label for="filter-status">Status</label>
+            <select id="filter-status" name="status">
+                <option value="">All statuses</option>
+                <option value="todo" <?php echo $filter_status === 'todo' ? 'selected' : ''; ?>>To Do</option>
+                <option value="in_progress" <?php echo $filter_status === 'in_progress' ? 'selected' : ''; ?>>In Progress</option>
+                <option value="done" <?php echo $filter_status === 'done' ? 'selected' : ''; ?>>Done</option>
+            </select>
+        </div>
+
+        <button type="submit" class="btn" style="width: auto; padding: 10px 20px;">
+            Filter
+        </button>
+
+        <a href="project.php?id=<?php echo $project_id; ?>" class="btn btn-sm">
+            Clear
+        </a>
+    </form>
+</div>
+
         <!-- Kanban Board View -->
         <div class="kanban-board">
             <!-- To Do Column -->
             <div class="kanban-column">
                 <h3>To Do (<?php echo count($kanban['todo']); ?>)</h3>
                 <?php foreach ($kanban['todo'] as $task): ?>
-                    <div class="task-card">
+    <?php
+    $is_overdue = (
+        !empty($task['due_date']) &&
+        $task['due_date'] < date('Y-m-d') &&
+        $task['status'] !== 'done'
+    );
+    ?>
+    <div class="task-card<?php echo $is_overdue ? ' overdue' : ''; ?>">
+                
                         <h4><?php echo htmlspecialchars($task['title']); ?></h4>
                         <?php if ($task['description']): ?>
                             <p><?php echo htmlspecialchars($task['description']); ?></p>
@@ -183,8 +279,15 @@ foreach ($tasks as $task) {
             <!-- In Progress Column -->
             <div class="kanban-column">
                 <h3>In Progress (<?php echo count($kanban['in_progress']); ?>)</h3>
-                <?php foreach ($kanban['in_progress'] as $task): ?>
-                    <div class="task-card">
+               <?php foreach ($kanban['in_progress'] as $task): ?>
+    <?php
+    $is_overdue = (
+        !empty($task['due_date']) &&
+        $task['due_date'] < date('Y-m-d') &&
+        $task['status'] !== 'done'
+    );
+    ?>
+    <div class="task-card<?php echo $is_overdue ? ' overdue' : ''; ?>">
                         <h4><?php echo htmlspecialchars($task['title']); ?></h4>
                         <?php if ($task['description']): ?>
                             <p><?php echo htmlspecialchars($task['description']); ?></p>
@@ -213,7 +316,14 @@ foreach ($tasks as $task) {
             <div class="kanban-column">
                 <h3>Done (<?php echo count($kanban['done']); ?>)</h3>
                 <?php foreach ($kanban['done'] as $task): ?>
-                    <div class="task-card">
+    <?php
+    $is_overdue = (
+        !empty($task['due_date']) &&
+        $task['due_date'] < date('Y-m-d') &&
+        $task['status'] !== 'done'
+    );
+    ?>
+    <div class="task-card<?php echo $is_overdue ? ' overdue' : ''; ?>">
                         <h4><?php echo htmlspecialchars($task['title']); ?></h4>
                         <?php if ($task['description']): ?>
                             <p><?php echo htmlspecialchars($task['description']); ?></p>
