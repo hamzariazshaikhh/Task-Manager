@@ -206,3 +206,87 @@ body {
 .btn-danger:hover {
     background-color: #bf2600;
 }
+
+
+
+/* Kanban Board Layout */
+.project-meta {
+    background: var(--card-bg);
+    padding: 20px;
+    border-radius: 6px;
+    margin-bottom: 24px;
+    border: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.kanban-board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    align-items: start;
+}
+
+.kanban-column {
+    background: #ebecf0;
+    border-radius: 6px;
+    padding: 16px;
+    min-height: 400px;
+}
+
+.kanban-column h3 {
+    font-size: 15px;
+    text-transform: uppercase;
+    color: #5e6c84;
+    margin-bottom: 16px;
+    letter-spacing: 0.5px;
+}
+
+.task-card {
+    background: var(--card-bg);
+    padding: 14px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    border: 1px solid var(--border-color);
+}
+
+.task-card h4 {
+    font-size: 15px;
+    margin-bottom: 6px;
+}
+
+.task-card p {
+    font-size: 13px;
+    color: #5e6c84;
+    margin-bottom: 10px;
+}
+
+.task-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 8px;
+    margin-top: 8px;
+}
+
+.badge {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+}
+
+.badge-low { background: #e3fcef; color: #006644; }
+.badge-medium { background: #deebff; color: #0747a6; }
+.badge-high { background: #ffebe6; color: #de350b; }
+
+@media (max-width: 900px) {
+    .kanban-board {
+        grid-template-columns: 1fr;
+    }
+}
