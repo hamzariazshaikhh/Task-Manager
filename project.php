@@ -101,6 +101,7 @@ foreach ($tasks as $task) {
         <div class="user-info">
             <a href="dashboard.php" class="btn btn-sm" style="width: auto;">&larr; Back to Dashboard</a>
             <span><strong><?php echo htmlspecialchars($_SESSION['username']); ?></strong></span>
+            <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark theme">🌙</button>
             <a href="logout.php" class="btn logout-btn">Logout</a>
         </div>
     </nav>
@@ -238,5 +239,6 @@ foreach ($tasks as $task) {
             </div>
         </div>
     </div>
+    <script src="assets/js/main.js"></script>
 </body>
 </html>

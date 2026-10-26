@@ -43,6 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <div class="auth-container">
+        <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark theme">
+        🌙
+        </button>
         <h2>Create Account</h2>
         <?php if (!empty($error)): ?>
             <div class="alert error"><?php echo htmlspecialchars($error); ?></div>
@@ -68,5 +71,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </form>
         <p>Already have an account? <a href="index.php">Login here</a></p>
     </div>
+    <script src="assets/js/main.js"></script>
 </body>
 </html>

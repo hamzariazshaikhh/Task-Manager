@@ -39,6 +39,8 @@ $projects = $stmt->fetchAll();
         <h1>Task Manager Board</h1>
         <div class="user-info">
             <span>Welcome, <strong><?php echo htmlspecialchars($_SESSION['username']); ?></strong></span>
+            <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark theme">🌙</button>
+
             <a href="logout.php" class="btn logout-btn">Logout</a>
         </div>
     </nav>
@@ -90,5 +92,6 @@ $projects = $stmt->fetchAll();
             <?php endif; ?>
         </div>
     </div>
+     <script src="assets/js/main.js"></script>
 </body>
 </html>
