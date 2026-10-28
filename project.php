@@ -135,11 +135,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_comment'])) {
         $error = 'Invalid task.';
     } elseif ($comment_text === '') {
         $error = 'Comment cannot be empty.';
+    } elseif (mb_strlen($comment_text) > 2000) {
+        $error = 'Comment cannot exceed 2000 characters.';
     } else {
         $taskStmt = $pdo->prepare("
             SELECT t.title
             FROM tasks t
-            INNER JOIN projects p ON t.project_id = p.id
+            INNER JOIN projects p
+                ON p.id = t.project_id
             WHERE t.id = ?
               AND t.project_id = ?
               AND p.user_id = ?
@@ -156,32 +159,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_comment'])) {
         if (!$task) {
             $error = 'Task not found.';
         } else {
-            $commentStmt = $pdo->prepare("
-                INSERT INTO task_comments
-                    (task_id, user_id, comment_text)
-                VALUES (?, ?, ?)
-            ");
+            try {
+                $pdo->beginTransaction();
 
-            $commentStmt->execute([
-                $task_id,
-                $_SESSION['user_id'],
-                $comment_text
-            ]);
+                $commentStmt = $pdo->prepare("
+                    INSERT INTO task_comments
+                        (task_id, user_id, comment_text)
+                    VALUES (?, ?, ?)
+                ");
 
-            addAuditLog(
-                $pdo,
-                $project_id,
-                (int) $_SESSION['user_id'],
-                'commented on task "' . $task['title'] . '"'
-            );
+                $commentStmt->execute([
+                    $task_id,
+                    $_SESSION['user_id'],
+                    $comment_text
+                ]);
 
-            header('Location: project.php?id=' . $project_id . '&success=comment_added');
-            exit();
+                addAuditLog(
+                    $pdo,
+                    $project_id,
+                    (int) $_SESSION['user_id'],
+                    'commented on task "' . $task['title'] . '"'
+                );
+
+                $pdo->commit();
+
+                header(
+                    'Location: project.php?id=' .
+                    $project_id .
+                    '&success=comment_added'
+                );
+                exit();
+            } catch (PDOException $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
+                throw $exception;
+            }
         }
     }
 }
-
-
 
 // Handle Status Update
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
@@ -476,7 +493,46 @@ if (!empty($tasks)) {
     <div id="success-message" class="alert success">
         <?php echo htmlspecialchars($success); ?>
     </div>
-<?php endif; ?>
+<?php endif; 
+
+
+$auditStmt = $pdo->prepare("
+    SELECT
+        audit_logs.action_description,
+        audit_logs.created_at,
+        users.username
+    FROM audit_logs
+    INNER JOIN users
+        ON users.id = audit_logs.user_id
+    WHERE audit_logs.project_id = ?
+    ORDER BY audit_logs.created_at DESC
+    LIMIT 100
+");
+
+$auditStmt->execute([$project_id]);
+$audit_logs = $auditStmt->fetchAll();
+
+
+?>
+<?php
+$auditStmt = $pdo->prepare("
+    SELECT
+        audit_logs.action_description,
+        audit_logs.created_at,
+        users.username
+    FROM audit_logs
+    INNER JOIN users
+        ON users.id = audit_logs.user_id
+    WHERE audit_logs.project_id = ?
+    ORDER BY audit_logs.created_at DESC
+    LIMIT 100
+");
+
+$auditStmt->execute([$project_id]);
+$audit_logs = $auditStmt->fetchAll();
+
+
+?>
 
         <!-- Add Task Form -->
         <div class="auth-container" style="max-width: 100%; margin: 0 0 32px 0; padding: 24px;">
@@ -557,168 +613,211 @@ if (!empty($tasks)) {
 </div>
 
         <!-- Kanban Board View -->
-        <div class="kanban-board">
-            <!-- To Do Column -->
-            <div class="kanban-column">
-                <h3>To Do (<?php echo count($kanban['todo']); ?>)</h3>
-                <?php foreach ($kanban['todo'] as $task): ?>
-    <?php
-    $is_overdue = (
-        !empty($task['due_date']) &&
-        $task['due_date'] < date('Y-m-d') &&
-        $task['status'] !== 'done'
-    );
-    ?>
-    <div class="task-card<?php echo $is_overdue ? ' overdue' : ''; ?>">
-                
-                        <h4><?php echo htmlspecialchars($task['title']); ?></h4>
-                        <?php if ($task['description']): ?>
-                            <p><?php echo htmlspecialchars($task['description']); ?></p>
-                        <?php endif; ?>
+<!-- Kanban Board View -->
+<?php
+$column_titles = [
+    'todo' => 'To Do',
+    'in_progress' => 'In Progress',
+    'done' => 'Done'
+];
 
-                       <?php if (!empty($task['due_date'])): ?>
-    <div class="task-due-date">
-        Due: <?php echo htmlspecialchars($task['due_date']); ?>
-    </div>
-<?php endif; ?>
+$status_labels = [
+    'todo' => 'To Do',
+    'in_progress' => 'In Progress',
+    'done' => 'Done'
+];
+?>
 
-<div class="task-comments">
-    <strong>
-        Comments (<?php echo count($commentsByTask[$task['id']] ?? []); ?>)
-    </strong>
+<div class="kanban-board">
+    <?php foreach ($column_titles as $status_key => $column_title): ?>
+        <div class="kanban-column">
+            <h3>
+                <?php echo htmlspecialchars($column_title); ?>
+                (<?php echo count($kanban[$status_key]); ?>)
+            </h3>
 
-    <?php foreach ($commentsByTask[$task['id']] ?? [] as $comment): ?>
-        <div class="comment">
-            <div class="comment-author">
-                <?php echo htmlspecialchars($comment['username']); ?>
+            <?php foreach ($kanban[$status_key] as $task): ?>
+                <?php
+                $is_overdue = (
+                    !empty($task['due_date']) &&
+                    $task['due_date'] < date('Y-m-d') &&
+                    $task['status'] !== 'done'
+                );
+                ?>
 
-                <small>
-                    <?php echo htmlspecialchars($comment['created_at']); ?>
-                </small>
-            </div>
+                <article class="task-card<?php echo $is_overdue ? ' overdue' : ''; ?>">
+                    <h4>
+                        <?php echo htmlspecialchars($task['title']); ?>
+                    </h4>
 
-            <p>
-                <?php echo nl2br(htmlspecialchars($comment['comment_text'])); ?>
-            </p>
+                    <?php if (!empty($task['description'])): ?>
+                        <p>
+                            <?php echo htmlspecialchars($task['description']); ?>
+                        </p>
+                    <?php endif; ?>
+
+                    <?php if (!empty($task['due_date'])): ?>
+                        <div class="task-due-date">
+                            Due: <?php echo htmlspecialchars($task['due_date']); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <section class="task-comments">
+                        <strong>
+                            Comments (<?php echo (int) $task['comment_count']; ?>)
+                        </strong>
+
+                        <?php foreach ($commentsByTask[$task['id']] ?? [] as $comment): ?>
+                            <article class="comment">
+                                <div class="comment-author">
+                                    <span>
+                                        <?php echo htmlspecialchars($comment['username']); ?>
+                                    </span>
+
+                                    <time datetime="<?php echo htmlspecialchars($comment['created_at']); ?>">
+                                        <?php echo htmlspecialchars($comment['created_at']); ?>
+                                    </time>
+                                </div>
+
+                                <p>
+                                    <?php echo nl2br(htmlspecialchars($comment['comment_text'])); ?>
+                                </p>
+                            </article>
+                        <?php endforeach; ?>
+
+                        <form
+                            method="POST"
+                            action="project.php?id=<?php echo (int) $project_id; ?>"
+                            class="comment-form"
+                        >
+                            <input
+                                type="hidden"
+                                name="task_id"
+                                value="<?php echo (int) $task['id']; ?>"
+                            >
+
+                            <textarea
+                                name="comment_text"
+                                rows="2"
+                                maxlength="2000"
+                                required
+                                placeholder="Write a comment..."
+                            ></textarea>
+
+                            <button
+                                type="submit"
+                                name="add_comment"
+                                class="btn btn-sm"
+                            >
+                                Add Comment
+                            </button>
+                        </form>
+                    </section>
+
+                    <div class="task-footer">
+                        <span class="badge badge-<?php echo htmlspecialchars($task['priority']); ?>">
+                            <?php echo htmlspecialchars($task['priority']); ?>
+                        </span>
+
+                        <form
+                            method="POST"
+                            action="project.php?id=<?php echo (int) $project_id; ?>"
+                            class="status-form"
+                        >
+                            <input
+                                type="hidden"
+                                name="task_id"
+                                value="<?php echo (int) $task['id']; ?>"
+                            >
+
+                            <select
+                                name="status"
+                                onchange="this.form.submit()"
+                                aria-label="Change task status"
+                            >
+                                <?php foreach ($status_labels as $status_value => $status_label): ?>
+                                    <option
+                                        value="<?php echo htmlspecialchars($status_value); ?>"
+                                        <?php echo $task['status'] === $status_value ? 'selected' : ''; ?>
+                                    >
+                                        <?php echo htmlspecialchars($status_label); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+
+                            <input
+                                type="hidden"
+                                name="update_status"
+                                value="1"
+                            >
+                        </form>
+
+                        <form
+                            method="POST"
+                            action="project.php?id=<?php echo (int) $project_id; ?>"
+                            onsubmit="return confirm('Delete this task?');"
+                        >
+                            <input
+                                type="hidden"
+                                name="task_id"
+                                value="<?php echo (int) $task['id']; ?>"
+                            >
+
+                            <button
+                                type="submit"
+                                name="delete_task"
+                                class="delete-task-button"
+                            >
+                                Delete
+                            </button>
+                        </form>
+                    </div>
+                </article>
+            <?php endforeach; ?>
         </div>
     <?php endforeach; ?>
-
-    <form method="POST" class="comment-form">
-        <input
-            type="hidden"
-            name="task_id"
-            value="<?php echo (int) $task['id']; ?>"
-        >
-
-        <textarea
-            name="comment_text"
-            rows="2"
-            maxlength="2000"
-            required
-            placeholder="Write a comment..."
-        ></textarea>
-
-        <button type="submit" name="add_comment" class="btn btn-sm">
-            Add Comment
-        </button>
-    </form>
 </div>
+<section class="activity-panel">
+    <div class="activity-header">
+        <h3>Activity History</h3>
 
-
-                        <div class="task-footer">
-                            <span class="badge badge-<?php echo $task['priority']; ?>"><?php echo $task['priority']; ?></span>
-                            <form method="POST" style="display:flex; gap:4px; align-items:center;">
-                                <input type="hidden" name="task_id" value="<?php echo $task['id']; ?>">
-                                <select name="status" onchange="this.form.submit()" style="font-size:11px; padding:2px;">
-                                    <option value="todo" selected>To Do</option>
-                                    <option value="in_progress">In Progress</option>
-                                    <option value="done">Done</option>
-                                </select>
-                                <input type="hidden" name="update_status" value="1">
-                            </form>
-                            <form method="POST" onsubmit="return confirm('Delete this task?');">
-                                <input type="hidden" name="task_id" value="<?php echo $task['id']; ?>">
-                                <button type="submit" name="delete_task" style="background:none; border:none; color:#de350b; cursor:pointer; font-size:12px;">Delete</button>
-                            </form>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-
-            <!-- In Progress Column -->
-            <div class="kanban-column">
-                <h3>In Progress (<?php echo count($kanban['in_progress']); ?>)</h3>
-               <?php foreach ($kanban['in_progress'] as $task): ?>
-    <?php
-    $is_overdue = (
-        !empty($task['due_date']) &&
-        $task['due_date'] < date('Y-m-d') &&
-        $task['status'] !== 'done'
-    );
-    ?>
-    <div class="task-card<?php echo $is_overdue ? ' overdue' : ''; ?>">
-                        <h4><?php echo htmlspecialchars($task['title']); ?></h4>
-                        <?php if ($task['description']): ?>
-                            <p><?php echo htmlspecialchars($task['description']); ?></p>
-                        <?php endif; ?>
-                        <div class="task-footer">
-                            <span class="badge badge-<?php echo $task['priority']; ?>"><?php echo $task['priority']; ?></span>
-                            <form method="POST" style="display:flex; gap:4px; align-items:center;">
-                                <input type="hidden" name="task_id" value="<?php echo $task['id']; ?>">
-                                <select name="status" onchange="this.form.submit()" style="font-size:11px; padding:2px;">
-                                    <option value="todo">To Do</option>
-                                    <option value="in_progress" selected>In Progress</option>
-                                    <option value="done">Done</option>
-                                </select>
-                                <input type="hidden" name="update_status" value="1">
-                            </form>
-                            <form method="POST" onsubmit="return confirm('Delete this task?');">
-                                <input type="hidden" name="task_id" value="<?php echo $task['id']; ?>">
-                                <button type="submit" name="delete_task" style="background:none; border:none; color:#de350b; cursor:pointer; font-size:12px;">Delete</button>
-                            </form>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-
-            <!-- Done Column -->
-            <div class="kanban-column">
-                <h3>Done (<?php echo count($kanban['done']); ?>)</h3>
-                <?php foreach ($kanban['done'] as $task): ?>
-    <?php
-    $is_overdue = (
-        !empty($task['due_date']) &&
-        $task['due_date'] < date('Y-m-d') &&
-        $task['status'] !== 'done'
-    );
-    ?>
-    <div class="task-card<?php echo $is_overdue ? ' overdue' : ''; ?>">
-                        <h4><?php echo htmlspecialchars($task['title']); ?></h4>
-                        <?php if ($task['description']): ?>
-                            <p><?php echo htmlspecialchars($task['description']); ?></p>
-                        <?php endif; ?>
-                        <div class="task-footer">
-                            <span class="badge badge-<?php echo $task['priority']; ?>"><?php echo $task['priority']; ?></span>
-                            <form method="POST" style="display:flex; gap:4px; align-items:center;">
-                                <input type="hidden" name="task_id" value="<?php echo $task['id']; ?>">
-                                <select name="status" onchange="this.form.submit()" style="font-size:11px; padding:2px;">
-                                    <option value="todo">To Do</option>
-                                    <option value="in_progress">In Progress</option>
-                                    <option value="done" selected>Done</option>
-                                </select>
-                                <input type="hidden" name="update_status" value="1">
-                            </form>
-                            <form method="POST" onsubmit="return confirm('Delete this task?');">
-                                <input type="hidden" name="task_id" value="<?php echo $task['id']; ?>">
-                                <button type="submit" name="delete_task" style="background:none; border:none; color:#de350b; cursor:pointer; font-size:12px;">Delete</button>
-                            </form>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
+        <span>
+            <?php echo count($audit_logs); ?> recent events
+        </span>
     </div>
+
+    <?php if (empty($audit_logs)): ?>
+        <p class="activity-empty">
+            No activity recorded yet.
+        </p>
+    <?php else: ?>
+        <div class="activity-list">
+            <?php foreach ($audit_logs as $log): ?>
+                <article class="activity-item">
+                    <div class="activity-dot" aria-hidden="true"></div>
+
+                    <div class="activity-content">
+                        <p>
+                            <strong>
+                                <?php echo htmlspecialchars($log['username']); ?>
+                            </strong>
+
+                            <?php echo htmlspecialchars($log['action_description']); ?>
+                        </p>
+
+                        <time datetime="<?php echo htmlspecialchars($log['created_at']); ?>">
+                            <?php echo htmlspecialchars($log['created_at']); ?>
+                        </time>
+                    </div>
+                </article>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+</section>
+
     <script src="assets/js/main.js"></script>
+
+
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
