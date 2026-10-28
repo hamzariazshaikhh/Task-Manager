@@ -48,6 +48,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark theme">
         🌙
         </button>
+        <h1 style= text-align:center;>Task Manager </h1> 
+        <br><br>
         <h2>Welcome Back</h2>
         <?php if (!empty($error)): ?>
             <div class="alert error"><?php echo htmlspecialchars($error); ?></div>

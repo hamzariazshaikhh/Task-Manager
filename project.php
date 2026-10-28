@@ -22,53 +22,280 @@ if (!$project) {
 $error = '';
 $success = '';
 
+
+$success_messages = [
+    'task_added' => 'Task added successfully!',
+    'comment_added' => 'Comment added successfully!',
+    'project_updated' => 'Project details updated successfully!'
+];
+
+$success_key = $_GET['success'] ?? '';
+
+if (array_key_exists($success_key, $success_messages)) {
+    $success = $success_messages[$success_key];
+}
+
+function addAuditLog(PDO $pdo, int $project_id, int $user_id, string $description): void
+{
+    $auditStmt = $pdo->prepare("
+        INSERT INTO audit_logs
+            (project_id, user_id, action_description)
+        VALUES (?, ?, ?)
+    ");
+
+    $auditStmt->execute([
+        $project_id,
+        $user_id,
+        $description
+    ]);
+}
+
+
+// Handle project details update
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_project'])) {
+    $project_title = trim($_POST['project_title'] ?? '');
+    $project_description = trim($_POST['project_description'] ?? '');
+
+    if ($project_title === '') {
+        $error = 'Project title is required.';
+    } else {
+        $updateStmt = $pdo->prepare("
+            UPDATE projects
+            SET title = ?, description = ?
+            WHERE id = ? AND user_id = ?
+        ");
+
+        $updateStmt->execute([
+            $project_title,
+            $project_description,
+            $project_id,
+            $_SESSION['user_id']
+        ]);
+
+        if ($updateStmt->rowCount() > 0) {
+            addAuditLog(
+                $pdo,
+                $project_id,
+                (int) $_SESSION['user_id'],
+                'updated project details'
+            );
+
+            header('Location: project.php?id=' . $project_id . '&success=project_updated');
+            exit();
+        }
+
+        $error = 'Project details could not be updated.';
+    }
+}
+
 // Handle Task Creation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_task'])) {
-    $title       = trim($_POST['title']);
-    $description = trim($_POST['description']);
-    $priority    = $_POST['priority'] ?? 'medium';
-    $due_date    = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
+    $title = trim($_POST['title'] ?? '');
+    $description = trim($_POST['description'] ?? '');
+    $priority = $_POST['priority'] ?? 'medium';
+    $due_date = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
 
-    if (empty($title)) {
+    if ($title === '') {
         $error = "Task title is required.";
     } else {
-        $stmt = $pdo->prepare("INSERT INTO tasks (project_id, title, description, priority, due_date) VALUES (?, ?, ?, ?, ?)");
-        if ($stmt->execute([$project_id, $title, $description, $priority, $due_date])) {
-            $success = "Task added successfully!";
+        $stmt = $pdo->prepare("
+            INSERT INTO tasks
+                (project_id, title, description, priority, due_date)
+            VALUES (?, ?, ?, ?, ?)
+        ");
+
+    }
+if ($stmt->execute([
+    $project_id,
+    $title,
+    $description,
+    $priority,
+    $due_date
+])) {
+    addAuditLog(
+        $pdo,
+        $project_id,
+        (int) $_SESSION['user_id'],
+        'created task "' . $title . '"'
+    );
+
+    header('Location: project.php?id=' . $project_id . '&success=task_added');
+    exit();
+}
+}
+
+
+
+// Handle Comment Creation
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_comment'])) {
+    $task_id = filter_var($_POST['task_id'] ?? null, FILTER_VALIDATE_INT);
+    $comment_text = trim($_POST['comment_text'] ?? '');
+
+    if (!$task_id) {
+        $error = 'Invalid task.';
+    } elseif ($comment_text === '') {
+        $error = 'Comment cannot be empty.';
+    } else {
+        $taskStmt = $pdo->prepare("
+            SELECT t.title
+            FROM tasks t
+            INNER JOIN projects p ON t.project_id = p.id
+            WHERE t.id = ?
+              AND t.project_id = ?
+              AND p.user_id = ?
+        ");
+
+        $taskStmt->execute([
+            $task_id,
+            $project_id,
+            $_SESSION['user_id']
+        ]);
+
+        $task = $taskStmt->fetch();
+
+        if (!$task) {
+            $error = 'Task not found.';
         } else {
-            $error = "Failed to add task.";
+            $commentStmt = $pdo->prepare("
+                INSERT INTO task_comments
+                    (task_id, user_id, comment_text)
+                VALUES (?, ?, ?)
+            ");
+
+            $commentStmt->execute([
+                $task_id,
+                $_SESSION['user_id'],
+                $comment_text
+            ]);
+
+            addAuditLog(
+                $pdo,
+                $project_id,
+                (int) $_SESSION['user_id'],
+                'commented on task "' . $task['title'] . '"'
+            );
+
+            header('Location: project.php?id=' . $project_id . '&success=comment_added');
+            exit();
         }
     }
 }
 
+
+
 // Handle Status Update
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
-    $task_id     = filter_var($_POST['task_id'], FILTER_VALIDATE_INT);
-    $new_status  = $_POST['status'];
+    $task_id = filter_var($_POST['task_id'] ?? null, FILTER_VALIDATE_INT);
+    $new_status = $_POST['status'] ?? '';
 
-    if ($task_id && in_array($new_status, ['todo', 'in_progress', 'done'])) {
-        // Ensure the task belongs to a project owned by this user
-        $updateStmt = $pdo->prepare("
-            UPDATE tasks t 
-            JOIN projects p ON t.project_id = p.id 
-            SET t.status = ? 
-            WHERE t.id = ? AND p.user_id = ?
+    $allowed_statuses = [
+        'todo' => 'To Do',
+        'in_progress' => 'In Progress',
+        'done' => 'Done'
+    ];
+
+    if (
+        $task_id &&
+        array_key_exists($new_status, $allowed_statuses)
+    ) {
+        $taskStmt = $pdo->prepare("
+            SELECT t.status, t.title
+            FROM tasks t
+            INNER JOIN projects p ON t.project_id = p.id
+            WHERE t.id = ?
+              AND t.project_id = ?
+              AND p.user_id = ?
         ");
-        $updateStmt->execute([$new_status, $task_id, $_SESSION['user_id']]);
+
+        $taskStmt->execute([
+            $task_id,
+            $project_id,
+            $_SESSION['user_id']
+        ]);
+
+        $task = $taskStmt->fetch();
+
+        if ($task && $task['status'] !== $new_status) {
+            $old_status_labels = [
+                'todo' => 'To Do',
+                'in_progress' => 'In Progress',
+                'done' => 'Done'
+            ];
+
+            $updateStmt = $pdo->prepare("
+                UPDATE tasks
+                SET status = ?
+                WHERE id = ?
+                  AND project_id = ?
+            ");
+
+            $updateStmt->execute([
+                $new_status,
+                $task_id,
+                $project_id
+            ]);
+
+            addAuditLog(
+                $pdo,
+                $project_id,
+                (int) $_SESSION['user_id'],
+                'changed task "' . $task['title'] .
+                '" status from ' . $old_status_labels[$task['status']] .
+                ' to ' . $allowed_statuses[$new_status]
+            );
+        }
     }
+
+    header('Location: project.php?id=' . $project_id);
+    exit();
 }
+
 
 // Handle Task Deletion
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_task'])) {
-    $task_id = filter_var($_POST['task_id'], FILTER_VALIDATE_INT);
+    $task_id = filter_var($_POST['task_id'] ?? null, FILTER_VALIDATE_INT);
+
     if ($task_id) {
-        $delStmt = $pdo->prepare("
-            DELETE t FROM tasks t 
-            JOIN projects p ON t.project_id = p.id 
-            WHERE t.id = ? AND p.user_id = ?
+        $taskStmt = $pdo->prepare("
+            SELECT t.title
+            FROM tasks t
+            INNER JOIN projects p ON t.project_id = p.id
+            WHERE t.id = ?
+              AND t.project_id = ?
+              AND p.user_id = ?
         ");
-        $delStmt->execute([$task_id, $_SESSION['user_id']]);
+
+        $taskStmt->execute([
+            $task_id,
+            $project_id,
+            $_SESSION['user_id']
+        ]);
+
+        $task = $taskStmt->fetch();
+
+        if ($task) {
+            $delStmt = $pdo->prepare("
+                DELETE FROM tasks
+                WHERE id = ?
+                  AND project_id = ?
+            ");
+
+            $delStmt->execute([
+                $task_id,
+                $project_id
+            ]);
+
+            addAuditLog(
+                $pdo,
+                $project_id,
+                (int) $_SESSION['user_id'],
+                'deleted task "' . $task['title'] . '"'
+            );
+        }
     }
+
+    header('Location: project.php?id=' . $project_id);
+    exit();
 }
 
 // Fetch all tasks for this project
@@ -89,23 +316,35 @@ if (!in_array($filter_status, $allowed_statuses, true)) {
     $filter_status = '';
 }
 
-$query = "SELECT * FROM tasks WHERE project_id = ?";
+$query = "
+    SELECT
+        tasks.*,
+        COALESCE(comment_counts.comment_count, 0) AS comment_count
+    FROM tasks
+    LEFT JOIN (
+        SELECT task_id, COUNT(*) AS comment_count
+        FROM task_comments
+        GROUP BY task_id
+    ) AS comment_counts
+        ON comment_counts.task_id = tasks.id
+    WHERE tasks.project_id = ?
+";
 $params = [$project_id];
 
 if ($search !== '') {
-    $query .= " AND (title LIKE ? OR description LIKE ?)";
+    $query .= " AND (tasks.title LIKE ? OR tasks.description LIKE ?)";
     $search_pattern = '%' . $search . '%';
     $params[] = $search_pattern;
     $params[] = $search_pattern;
 }
 
 if ($filter_priority !== '') {
-    $query .= " AND priority = ?";
+    $query .= " AND tasks.priority = ?";
     $params[] = $filter_priority;
 }
 
 if ($filter_status !== '') {
-    $query .= " AND status = ?";
+    $query .= " AND tasks.status = ?";
     $params[] = $filter_status;
 }
 
@@ -125,6 +364,35 @@ foreach ($tasks as $task) {
         $kanban[$task['status']][] = $task;
     }
 }
+
+// Fetch all comments for the tasks shown on this page
+$commentsByTask = [];
+
+if (!empty($tasks)) {
+    $taskIds = array_column($tasks, 'id');
+    $placeholders = implode(',', array_fill(0, count($taskIds), '?'));
+
+    $commentsStmt = $pdo->prepare("
+        SELECT
+            task_comments.id,
+            task_comments.task_id,
+            task_comments.comment_text,
+            task_comments.created_at,
+            users.username
+        FROM task_comments
+        INNER JOIN users
+            ON users.id = task_comments.user_id
+        WHERE task_comments.task_id IN ($placeholders)
+        ORDER BY task_comments.created_at ASC
+    ");
+
+    $commentsStmt->execute($taskIds);
+
+    foreach ($commentsStmt->fetchAll() as $comment) {
+        $commentsByTask[$comment['task_id']][] = $comment;
+    }
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -143,21 +411,72 @@ foreach ($tasks as $task) {
             <a href="logout.php" class="btn logout-btn">Logout</a>
         </div>
     </nav>
+<div class="container">
+    <div class="project-meta">
+        <div>
+            <?php if (isset($_GET['edit'])): ?>
+                <form method="POST" action="project.php?id=<?php echo (int) $project_id; ?>">
+                    <div class="form-group">
+                        <label for="project-title">Project Title</label>
+                        <input
+                            type="text"
+                            id="project-title"
+                            name="project_title"
+                            value="<?php echo htmlspecialchars($project['title']); ?>"
+                            maxlength="100"
+                            required
+                        >
+                    </div>
 
-    <div class="container">
-        <div class="project-meta">
-            <div>
+                    <div class="form-group">
+                        <label for="project-description">Project Description</label>
+                        <textarea
+                            id="project-description"
+                            name="project_description"
+                            rows="4"
+                        ><?php echo htmlspecialchars($project['description'] ?? ''); ?></textarea>
+                    </div>
+
+                    <button type="submit" name="update_project" class="btn">
+                        Save Changes
+                    </button>
+
+                    <a
+                        href="project.php?id=<?php echo (int) $project_id; ?>"
+                        class="btn btn-sm"
+                    >
+                        Cancel
+                    </a>
+                </form>
+            <?php else: ?>
                 <h2><?php echo htmlspecialchars($project['title']); ?></h2>
-                <p><?php echo htmlspecialchars($project['description'] ?: 'No project description.'); ?></p>
-            </div>
-        </div>
 
-        <?php if (!empty($error)): ?>
-            <div class="alert error"><?php echo htmlspecialchars($error); ?></div>
-        <?php endif; ?>
-        <?php if (!empty($success)): ?>
-            <div class="alert success"><?php echo htmlspecialchars($success); ?></div>
-        <?php endif; ?>
+                <p>
+                    <?php echo htmlspecialchars($project['description'] ?: 'No project description.'); ?>
+                </p>
+
+                <a
+                    href="project.php?id=<?php echo (int) $project_id; ?>&edit=1"
+                    class="btn btn-sm"
+                >
+                    Edit Project
+                </a>
+            <?php endif; ?>
+        </div>
+    </div>
+    
+  
+      <?php if (!empty($error)): ?>
+    <div id="error-message" class="alert error">
+        <?php echo htmlspecialchars($error); ?>
+    </div>
+<?php endif; ?>
+
+<?php if (!empty($success)): ?>
+    <div id="success-message" class="alert success">
+        <?php echo htmlspecialchars($success); ?>
+    </div>
+<?php endif; ?>
 
         <!-- Add Task Form -->
         <div class="auth-container" style="max-width: 100%; margin: 0 0 32px 0; padding: 24px;">
@@ -256,6 +575,56 @@ foreach ($tasks as $task) {
                         <?php if ($task['description']): ?>
                             <p><?php echo htmlspecialchars($task['description']); ?></p>
                         <?php endif; ?>
+
+                       <?php if (!empty($task['due_date'])): ?>
+    <div class="task-due-date">
+        Due: <?php echo htmlspecialchars($task['due_date']); ?>
+    </div>
+<?php endif; ?>
+
+<div class="task-comments">
+    <strong>
+        Comments (<?php echo count($commentsByTask[$task['id']] ?? []); ?>)
+    </strong>
+
+    <?php foreach ($commentsByTask[$task['id']] ?? [] as $comment): ?>
+        <div class="comment">
+            <div class="comment-author">
+                <?php echo htmlspecialchars($comment['username']); ?>
+
+                <small>
+                    <?php echo htmlspecialchars($comment['created_at']); ?>
+                </small>
+            </div>
+
+            <p>
+                <?php echo nl2br(htmlspecialchars($comment['comment_text'])); ?>
+            </p>
+        </div>
+    <?php endforeach; ?>
+
+    <form method="POST" class="comment-form">
+        <input
+            type="hidden"
+            name="task_id"
+            value="<?php echo (int) $task['id']; ?>"
+        >
+
+        <textarea
+            name="comment_text"
+            rows="2"
+            maxlength="2000"
+            required
+            placeholder="Write a comment..."
+        ></textarea>
+
+        <button type="submit" name="add_comment" class="btn btn-sm">
+            Add Comment
+        </button>
+    </form>
+</div>
+
+
                         <div class="task-footer">
                             <span class="badge badge-<?php echo $task['priority']; ?>"><?php echo $task['priority']; ?></span>
                             <form method="POST" style="display:flex; gap:4px; align-items:center;">
@@ -350,5 +719,32 @@ foreach ($tasks as $task) {
         </div>
     </div>
     <script src="assets/js/main.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const messages = document.querySelectorAll('#success-message, #error-message');
+
+    messages.forEach((message) => {
+        setTimeout(() => {
+            message.style.opacity = '0';
+
+            setTimeout(() => {
+                message.remove();
+            }, 300);
+        }, 4000);
+    });
+
+    const url = new URL(window.location.href);
+
+    if (url.searchParams.get('success') === 'task_added') {
+        url.searchParams.delete('success');
+
+        const cleanUrl = url.pathname + url.search;
+        window.history.replaceState({}, document.title, cleanUrl);
+    }
+});
+</script>
+</body>
+
 </body>
 </html>

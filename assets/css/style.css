@@ -238,7 +238,7 @@ body {
 }
 
 .kanban-column {
-    background: #f1f5f9;
+    background: var(--kanban-col);
     border-radius: 12px;
     padding: 16px;
     min-height: 500px;
@@ -400,4 +400,205 @@ body.dark-mode .task-card.overdue::before {
 .due-date.overdue-text {
     color: #ef4444;
     font-weight: 600;
+}
+
+/* Improved Task Cards */
+.task-card {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 170px;
+    padding: 18px;
+    margin-bottom: 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.task-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: var(--primary);
+}
+
+.task-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--primary);
+    box-shadow: var(--shadow-lg);
+}
+
+.task-card h4 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.task-card p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.task-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.task-footer form:first-of-type {
+    margin-left: auto;
+}
+
+.task-footer select {
+    min-height: 30px;
+    padding: 5px 8px;
+    color: var(--text-primary);
+    background-color: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.task-footer select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.task-footer button[name="delete_task"] {
+    padding: 5px 8px !important;
+    border-radius: 6px !important;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.task-footer button[name="delete_task"]:hover {
+    color: #b91c1c !important;
+    background-color: rgba(220, 38, 38, 0.1) !important;
+}
+
+/* Priority accent colors */
+.task-card:has(.badge-low)::before {
+    background: #10b981;
+}
+
+.task-card:has(.badge-medium)::before {
+    background: #3b82f6;
+}
+
+.task-card:has(.badge-high)::before {
+    background: #ef4444;
+}
+
+/* Priority badges */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+}
+
+.badge-low {
+    color: #047857;
+    background: #d1fae5;
+    border: 1px solid #6ee7b7;
+}
+
+.badge-medium {
+    color: #1d4ed8;
+    background: #dbeafe;
+    border: 1px solid #93c5fd;
+}
+
+.badge-high {
+    color: #b91c1c;
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+}
+
+/* Overdue tasks */
+.task-card.overdue {
+    background: #fff7f7;
+    border-color: #fca5a5;
+}
+
+.task-card.overdue::before {
+    background: #dc2626;
+}
+
+.task-card.overdue::after {
+    content: "Overdue";
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    padding: 4px 7px;
+    color: #b91c1c;
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+/* Dark theme cards */
+body.dark-mode .task-card.overdue {
+    background: #2b1720;
+    border-color: #7f1d1d;
+}
+
+body.dark-mode .badge-low {
+    color: #6ee7b7;
+    background: rgba(16, 185, 129, 0.15);
+    border-color: #047857;
+}
+
+body.dark-mode .badge-medium {
+    color: #93c5fd;
+    background: rgba(59, 130, 246, 0.15);
+    border-color: #1d4ed8;
+}
+
+body.dark-mode .badge-high {
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.15);
+    border-color: #b91c1c;
+}
+
+/* Responsive task cards */
+@media (max-width: 700px) {
+    .kanban-board {
+        grid-template-columns: 1fr;
+    }
+
+    .task-footer form:first-of-type {
+        margin-left: 0;
+    }
+
+    .task-card.overdue::after {
+        position: static;
+        align-self: flex-start;
+    }
+}
+
+.alert {
+    opacity: 1;
+    transition: opacity 0.3s ease;
 }

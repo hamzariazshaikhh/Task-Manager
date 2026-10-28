@@ -84,6 +84,7 @@ $projects = $stmt->fetchAll();
                         </div>
                         <div class="card-actions">
                             <a href="project.php?id=<?php echo $project['id']; ?>" class="btn btn-sm">View Board</a>
+                            <a href="project.php?id=<?php echo (int) $project['id']; ?>&edit=1" class="btn btn-sm">Edit</a>
                         </div>
                     </div>
                 <?php endforeach; ?>
